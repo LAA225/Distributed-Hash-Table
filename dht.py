@@ -620,7 +620,7 @@ class chord:
             except:
                 if(self.count < 1):
                     self.count += 1
-                    suc_unsure = True
+                    self.suc_unsure = True
 
                 else:
                     print('successor needs to be updated as he is lost\n')
@@ -637,7 +637,7 @@ class chord:
                     z.send('end'.encode())
 
                     self.count = 0
-                    suc_unsure = False
+                    self.suc_unsure = False
                     # doesnot connect means successor has left
                     # when have fingertable, can go to any of the entries to find new successor
 
