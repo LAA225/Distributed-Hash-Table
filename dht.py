@@ -111,6 +111,8 @@ class chord:
                     total_recieved += len(string)
                     f.write(string)
 
+            s.send('ack'.encode())
+
             numOfFiles -= 1
 
     def fileSend(self, peer, data):
@@ -128,21 +130,24 @@ class chord:
                 peer.send(toSend.encode())
                 ack = peer.recv(1024).decode()
 
-                with open(file, 'rb') as f:
-                    string = f.read(1024)
-                    peer.send(string)
-                    while string != '':
-                        string = f.read(1024)
-                        peer.send(string)
+                f = open(filename, 'rb')
+                for chunk in iter(lambda: f.read(1024), b''):
+                    peer.send(chunk)
 
-                time.sleep(0.1)
+                ack = peer.recv(1024).decode()
 
         else:
             peer.send('0'.encode())
 
     def connectToChord(self, otherPort):
-        z = socket.socket()
-        z.connect((self.ip, int(otherPort)))
+        try:
+            z = socket.socket()
+            z.connect((self.ip, int(otherPort)))
+
+        except:
+            print("the reference node is not online. Kindly find another")
+            sys.exit()
+
         toSend = 'findSuccessor ' + str(self.key)
         z.send(toSend.encode())
 
@@ -249,8 +254,8 @@ class chord:
         print()
         print(filename)
         print()
-        # Current_Directory = os.getcwd()
-        file = os.path.join(self.port, filename)  # self.port + "\\" + filename
+
+        file = os.path.join(self.port, filename)
 
         if(not os.path.exists(self.port)):
             os.makedirs(self.port)
@@ -315,12 +320,9 @@ class chord:
             peer.send(toSend.encode())
             ack = peer.recv(1024).decode()
 
-            with open(file, 'rb') as f:
-                byteToSend = f.read(1024)
-                peer.send(byteToSend)
-                while byteToSend != "":
-                    byteToSend = f.read(1024)
-                    peer.send(byteToSend)
+            f = open(filename, 'rb')
+            for chunk in iter(lambda: f.read(1024), b''):
+                peer.send(chunk)
 
         else:
             peer.send('file not found'.encode)
@@ -359,11 +361,22 @@ class chord:
 
             elif choice == '5':
                 print("logout\n")
-                # self.consequence = False
+                # # self.consequence = False
+                # z = socket.socket()
+                # z.connect((self.ip, int(self.port)))
+                # z.send('logout'.encode())
+                # ack = z.recv(1024).decode()
+                # z.send('end'.encode())
+                # time.sleep(0.5)
+                self.logout()
+                print("came out of logout")
+                self.consequence = False
+
+                # send one last request to self as it is blocking
                 z = socket.socket()
                 z.connect((self.ip, int(self.port)))
-                z.send('logout'.encode())
-                self.consequence = False
+                z.send('end'.encode())
+
             else:
                 print("invalid choice\n")
 
@@ -445,9 +458,10 @@ class chord:
                     ' ' + str(self.fingerTable[0].key)
                 peer.send(toSend.encode())
 
-            elif(string == 'logout'):
-                print('handle sending files off etc and logout')
-                self.logout()
+            # elif(string == 'logout'):
+            #     print('handle sending files off etc and logout')
+            #     self.logout()
+            #     peer.send('ack'.encode())
 
             elif(string_in_list[0] == 'store'):
                 self.store(peer, string)
@@ -468,7 +482,8 @@ class chord:
                 peer.send(ans.encode())
 
             elif(string_in_list[0] == 'your'):
-                self.contactSuc(int(string_in_list[3], int(string_in_list[4])))
+                self.contactSuc(int(string_in_list[3]), int(string_in_list[4]))
+                peer.send('ack'.encode())
 
             elif(string_in_list[0] == 'updatePred'):
                 # print("Getting Successor Info"
@@ -484,12 +499,11 @@ class chord:
             elif(string == 'end'):
                 peer.close()
                 _thread.exit()
-                break
 
     def contactSuc(self, suc_port, suc_key):
         s = socket.socket()
         s.connect((self.ip, suc_port))
-        toSend = 'I am new predecessor '+str(self.port) + ' '+str(self.key)
+        toSend = 'I am new predecessor ' + str(self.port) + ' ' + str(self.key)
         s.send(toSend.encode())
         ack = s.recv(1024).decode()
         s.send('end'.encode())
@@ -627,6 +641,7 @@ class chord:
 
                     self.nodeLeft(
                         self.fingerTable[0].portNo, self.suc_suc, self.suc_suc_key)
+
                     z = socket.socket()
                     print(self.suc_suc)
                     z.connect((self.ip, int(self.suc_suc)))
@@ -641,8 +656,11 @@ class chord:
                     # doesnot connect means successor has left
                     # when have fingertable, can go to any of the entries to find new successor
 
+    # inform all nodes about the node that left
+    # so they can update their fingertables
+    #
     def nodeLeft(self, key, sucKey, sucHashKey):
-
+        print("arrived in nodeLeft")
         if key == self.lastLeft:
             return 'done'
 
@@ -677,77 +695,58 @@ class chord:
 
     def logout(self):
         # if the only node in the chord then no need to transfer any files
-        if(self.fingerTable[0].portNo == self.port):
+        if(self.fingerTable[0].portNo == int(self.port)):
             return
 
+        # need to send of files to correct inheritor
         if(os.path.exists(self.port)):
-            if(self.suc_unsure == False):
-                z = socket.socket()
-                z.connect((self.ip, int(self.fingerTable[0].portNo)))
-
-                file_list = os.listdir(self.port)
-
-                print("")
-                print(file_list)
-                print("")
-
-                for file in file_list:
-                    toSend = 'store ' + file + ' ' + str(os.path.getsize(file))
-                    z.send(toSend.encode())
-                    ack = z.recv(1024).decode()
-
-                    filename = os.path.join(self.port, file)
-                    with open(filename, 'rb') as f:
-                        byteToSend = f.read(1024)
-                        z.send(byteToSend)
-                        while byteToSend != "":
-                            byteToSend = f.read(1024)
-                            z.send(byteToSend)
-                        time.sleep(0.5)
-
-                z.send('end'.encode())
-                time.sleep(0.5)
-                z = socket.socket()
-                z.connect((self.ip, self.predPort))
-                toSend = 'your new successor ' + \
-                    str(self.fingerTable[0].portNo) + \
-                    ' ' + str(self.fingerTable[0].key)
-                z.send(toSend.encode())
-                ack = z.recv(1024).decode()
-                z.send('end'.encode())
-                self.nodeLeft(
-                    self.port, self.fingerTable[0].portNo, self.fingerTable.key)
-
-            else:
+            if(self.suc_unsure == True):
                 time.sleep(6)
-                z = socket.socket()
-                z.connect((self.ip, int(self.fingerTable[0].portNo)))
-                for file in os.listdir(self.port):
-                    toSend = 'store ' + file + ' ' + str(os.path.getsize(file))
-                    z.send(toSend.encode())
-                    ack = z.recv(1024).decode()
 
-                    filename = os.path.join(self.port, file)
-                    with open(filename, 'rb') as f:
-                        byteToSend = f.read(1024)
-                        z.send(byteToSend)
-                        while byteToSend != "":
-                            byteToSend = f.read(1024)
-                            z.send(byteToSend)
-                        time.sleep(0.5)
+            # in every case, the node's successor will be the inheritor of the files
+            z = socket.socket()
+            z.connect((self.ip, int(self.fingerTable[0].portNo)))
 
-                z.send('end'.encode())
-                time.sleep(0.5)
-                z = socket.socket()
-                z.connect((self.ip, self.predPort))
-                toSend = 'your new successor ' + \
-                    str(self.fingerTable[0].portNo) + \
-                    ' ' + str(self.fingerTable[0].key)
+            file_list = os.listdir(self.port)
+
+            print("")
+            print(file_list)
+            print("")
+
+            for file in file_list:
+                filename = os.path.join(self.port, file)
+                toSend = 'store ' + \
+                    file + ' ' + \
+                    str(os.path.getsize(filename))
                 z.send(toSend.encode())
                 ack = z.recv(1024).decode()
-                z.send('end'.encode())
-                self.nodeLeft(
-                    self.port, self.fingerTable[0].portNo, self.fingerTable.key)
+
+                f = open(filename, 'rb')
+                for chunk in iter(lambda: f.read(1024), b''):
+                    z.send(chunk)
+
+                ack = z.recv(1024).decode()
+                f.close()
+
+            z.send('end'.encode())
+
+            # inform pred that your successor is now his
+            # allows it to smoothly update his successor
+            z = socket.socket()
+            z.connect((self.ip, int(self.predPort)))
+            toSend = 'your new successor ' + \
+                str(self.fingerTable[0].portNo) + \
+                ' ' + str(self.fingerTable[0].key)
+            z.send(toSend.encode())
+            ack = z.recv(1024).decode()
+
+            z.send('end'.encode())
+            print("got here")
+
+        # inform other nodes about leaving
+        self.nodeLeft(
+            self.port, self.fingerTable[0].portNo, self.fingerTable[0].key)
+        print("logout left nodeLeft")
 
 
 def Main():
