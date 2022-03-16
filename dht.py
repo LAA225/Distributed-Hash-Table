@@ -28,17 +28,17 @@ class fingerTableEntry:
 
 class chord:
     # own details
-    port = 0
+    port = -1
     ip = '127.0.0.1'
-    key = 0
+    key = -1
 
     # predecessor details
-    predKey = 0
-    predPort = 0
+    predKey = -1
+    predPort = -1
 
     # successor's successor details
-    suc_suc = 0
-    suc_suc_key = 0
+    suc_suc = -1
+    suc_suc_key = -1
 
     # fingertable containing addresses of other node
     fingerTable = []
@@ -56,8 +56,8 @@ class chord:
     suc_unsure = False
 
     # Flags
-    lastLeft = 0
-    lastNewJoin = 0
+    lastLeft = -1
+    lastNewJoin = -1
 
 ############################################# Setup Node ########################################################
 
@@ -388,7 +388,7 @@ class chord:
                 print('  ' + str(entry.key) + ' |   ' +
                       str(entry.portNo) + '   | ' + str(entry.value))
             elif(entry.key % 10 == entry.key):
-                print('  ' + str(entry.key) + ' |  ' +
+                print('  ' + str(entry.key) + ' |   ' +
                       str(entry.portNo) + '  | ' + str(entry.value))
             elif(entry.portNo % 10000 == entry.portNo):
                 print(' ' + str(entry.key) + ' |   ' +
@@ -554,7 +554,7 @@ class chord:
 
         while(self.consequence):
             peer, addr = s.accept()
-            _thread.start_new_thread(self.dealer, (peer))
+            _thread.start_new_thread(self.dealer, (peer,))
 
     # Name:    dealer
     # Purpose: communicates with connecting node to perform
@@ -707,7 +707,7 @@ class chord:
             peer.send(toSend.encode())
             ack = peer.recv(1024).decode()
 
-            f = open(filename, 'rb')
+            f = open(file, 'rb')
             for chunk in iter(lambda: f.read(1024), b''):
                 peer.send(chunk)
 
@@ -723,19 +723,24 @@ class chord:
     def newJoinHandler(self, pKey, pPort):
         iKey = int(pKey)
         iPort = int(pPort)
-
+        print('new join: ', iKey, self.lastNewJoin)
         if (iKey == self.key or self.lastNewJoin == iKey):
+            print('came to return')
             return
         else:
+            print('came to work')
             self.lastNewJoin = iKey
 
             for entry in self.fingerTable:  # If your finger table needs to be updated
+
                 if (iKey >= entry.value and iKey < entry.key):
                     entry.key = iKey
                     entry.portNo = iPort
+
                 elif (entry.key < entry.value and iKey < entry.key):
                     entry.key = iKey
                     entry.portNo = iPort
+
                 elif (entry.key < entry.value and iKey >= entry.value):
                     entry.key = iKey
                     entry.portNo = iPort
