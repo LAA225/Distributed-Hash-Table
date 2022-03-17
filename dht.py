@@ -62,6 +62,12 @@ class chord:
 ############################################# Setup Node ########################################################
 
     def __init__(self, own_port, other_port=None):
+        # data check:
+        try:
+            x = int(own_port)
+        except:
+            print("port needs to be an integer between 0 - 65535")
+            sys.exit()
 
         # If there is no reference node given, this is the first node in the chord.
         if other_port is None:
@@ -80,6 +86,13 @@ class chord:
 
         # NOT the first node to join
         else:
+            # data check
+            try:
+                x = int(other_port)
+            except:
+                print("port needs to be an integer between 0 - 65535")
+                sys.exit()
+
             self.port = own_port
             self.key = self.hashery(own_port)
 
@@ -328,23 +341,21 @@ class chord:
             print('\n file doesnot exist \n')
         else:
             data = reply.split(' ')
-            filename = data[0]
-            size = int(data[1])
+            filename = ' '.join(data[0:-1])
+            size = int(data[-1])
 
             z.send('ack'.encode())
 
-            string = z.recv(1024).decode()
             file = os.path.join(self.port, filename)
 
             if(not os.path.exists(self.port)):
                 os.makedirs(self.port)
 
-            f = open(file, "w+")
-            total_recieved = len(string)
-            f.write(string)
+            f = open(file, "wb+")
+            total_recieved = 0
             while total_recieved < size:
-                string = z.recv(1024).decode()
-                total_recieved += len(string)
+                string = z.recv(1024)
+                total_recieved += len(string.decode())
                 f.write(string)
 
         z.send('end'.encode())
@@ -394,8 +405,8 @@ class chord:
                 print(' ' + str(entry.key) + ' |   ' +
                       str(entry.portNo) + '   | ' + str(entry.value))
             else:
-                print(' ' + str(entry.key) + ' |  ' +
-                      str(entry.portNo) + '   | ' + str(entry.value))
+                print(' ' + str(entry.key) + ' |   ' +
+                      str(entry.portNo) + '  | ' + str(entry.value))
         print("-----------------------")
 
     # Name:    handleLogout
@@ -712,7 +723,7 @@ class chord:
                 peer.send(chunk)
 
         else:
-            peer.send('file not found'.encode)
+            peer.send('file not found'.encode())
 
     # Name:    newJoinHandler
     # Purpose: updates it's fingertables with the new node if needed
