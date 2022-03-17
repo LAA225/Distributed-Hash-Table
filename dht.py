@@ -835,10 +835,15 @@ class chord:
 
     def findSuccessor(self, value):
         pKey = int(float(value))
+
+        # general case of pred < value < self
         if (self.predKey < self.key and pKey > self.predKey and pKey < self.key):
             return str(self.port) + ' ' + str(self.key)
+
+        # edge pred < value < self where self is smallest node and hence has largest node as predecessor
         elif (self.predKey > self.key and (pKey < self.key or pKey > self.predKey)):
             return str(self.port) + ' ' + str(self.key)
+
         availableKeys = []
         availableKeys.append(self.key)
         for entry in self.fingerTable:
