@@ -1,3 +1,4 @@
+from genericpath import exists
 import socket
 import os
 import sys
@@ -10,18 +11,18 @@ import math
 
 class fingerTableEntry:
     key = -1
-    portNo = -1
+    port = -1
     IPadd = '127.0.0.1'
     value = -1
 
     # key(int): key value of the node
-    # portNo(int): port number used by node
+    # port(int): port number used by node
     # IP(string): ip address of node
     # value: the key value this node is representing in the fingertable
 
     def __init__(self, pKey=-1, pPort=-1, pIP='127.0.0.1', pValue=-1):
         self.key = pKey
-        self.portNo = pPort
+        self.port = pPort
         self.IPadd = pIP
         self.value = pValue
 
@@ -31,10 +32,16 @@ class chord:
     port = -1
     ip = '127.0.0.1'
     key = -1
+    port_str = '-1'
+    key_str = '-1'
 
     # predecessor details
     predKey = -1
     predPort = -1
+
+    # successor's details (only to be used when fingertable not made)
+    successorKey = -1
+    successorPort = -1
 
     # successor's successor details
     suc_suc = -1
@@ -46,25 +53,30 @@ class chord:
     # thread loops condition
     consequence = True
 
-    # size of DHT
-    m = 64
+    # size of DHT = 2^m
+    m = 6
 
     # increased when unable to contact successor
     count = 0
 
-    # Lets all threads know if successor cannot be contacted
+    # Lets all threads know if successor suspected to be offline
     suc_unsure = False
 
-    # Flags
+    # key of node that is currently leaving
     lastLeft = -1
-    lastNewJoin = -1
+
+    # flag indicating if fingertable available for use
+    fingertableSet = False
+
+    # contains (key, port) tuples for any new joins that informed of their arrival while fingertable was made
+    newJoin = []
 
 ############################################# Setup Node ########################################################
 
     def __init__(self, own_port, other_port=None):
         # data check:
         try:
-            x = int(own_port)
+            portInt = int(own_port)
         except:
             print("port needs to be an integer between 0 - 65535")
             sys.exit()
@@ -72,50 +84,63 @@ class chord:
         # If there is no reference node given, this is the first node in the chord.
         if other_port is None:
 
-            self.port = own_port
+            self.port = portInt
+            self.port_str = own_port
             self.key = self.hashery(own_port)
+            self.key_str = str(self.key)
             self.predKey = self.key
             self.predPort = self.port
 
-            for i in range(0, 6):
+            for i in range(0, self.m):
                 self.fingerTable.append(fingerTableEntry())
                 self.fingerTable[i].key = self.key
-                self.fingerTable[i].portNo = int(self.port)
+                self.fingerTable[i].port = self.port
                 self.fingerTable[i].IPadd = self.ip
-                self.fingerTable[i].value = ((self.key+(2**i)) % self.m)
+                self.fingerTable[i].value = ((self.key+(2**i)) % (2**self.m))
+
+            self.fingertableSet = True
+
+            # start listening at port
+            t1 = threading.Thread(target=self.listener, args=())
+            t1.start()
 
         # NOT the first node to join
         else:
             # data check
             try:
-                x = int(other_port)
+                otherPortInt = int(other_port)
             except:
                 print("port needs to be an integer between 0 - 65535")
                 sys.exit()
 
-            self.port = own_port
+            self.port = portInt
+            self.port_str = own_port
             self.key = self.hashery(own_port)
+            self.key_str = str(self.key)
 
-            successorPort, successorKey = self.connectToChord(other_port)
-            self.createFingerTable(successorPort, successorKey)
+            self.connectToChord(otherPortInt)
+
+            # start listening at port assigned as necessary for fingertable construction
+            t1 = threading.Thread(target=self.listener, args=())
+            t1.start()
+
+            self.createFingerTable()
             self.fileGet()
 
         self.mainController()
 
     # Name:    mainController
     # Purpose: Control main functions of node concurrently using multithreading
-    #          thread 1 is the UI that user has access to perform the functions available
-    #          thread 2 allows the node to deal with any incoming requests
+    #          thread 1 allows the node to deal with any incoming requests (called in constructor)
+    #          thread 2 is the UI that user has access to perform the functions available
     #          thread 3 responsible for maintaining the dht
     # parem:   none
     # returns: none
 
     def mainController(self):
-        t1 = threading.Thread(target=self.options, args=())
-        t2 = threading.Thread(target=self.listener, args=())
+        t2 = threading.Thread(target=self.options, args=())
         t3 = threading.Thread(target=self.checkSuccessor, args=())
 
-        t1.start()
         t2.start()
         t3.start()
 
@@ -123,76 +148,87 @@ class chord:
     # Purpose: setup successor node using reference node and
     #          setup predecessor using the successor node
     # parem:   otherPort (string): reference node given
-    # returns: successorPort (int): port number of successor node
-    #          successorKey  (int): key value of successor node
+    # returns: none
 
     def connectToChord(self, otherPort):
+        print('my key: ', self.key)
         try:
             z = socket.socket()
-            z.connect((self.ip, int(otherPort)))
+            z.connect((self.ip, otherPort))
 
         except:
             print("the reference node is not online. Kindly find another")
             sys.exit()
 
         # find successor using reference node
-        toSend = 'findSuccessor ' + str(self.key)
-        z.send(toSend.encode())
+        while True:
+            print('going to find successor')
+            toSend = 'findSuccessor ' + self.key_str
+            z.send(toSend.encode())
+            ans = z.recv(1024).decode()
+            ansSplit = ans.split(' ')
 
-        ans = z.recv(1024).decode()
-        ansSplit = ans.split(' ')
-        successorPort = int(float(ansSplit[0]))
-        successorKey = int(float(ansSplit[1]))
+            self.successorPort = int(float(ansSplit[0]))
+            self.successorKey = int(float(ansSplit[1]))
+            existsAlready = ansSplit[2]
+
+            if(existsAlready == 'False'):
+                print('found successor ', self.successorPort)
+                break
+            # if node with key exists then give it new one
+            else:
+                self.key = (self.key+1) % (2**self.m)
+                self.key_str = str(self.key)
+                print('new key ', self.key)
+
         z.send('end'.encode())
 
         t = socket.socket()
-        t.connect((self.ip, successorPort))
+        t.connect((self.ip, self.successorPort))
 
         # find predecessor of successor as that is now our predecessor
         t.send('getPredInfo'.encode())
         ans = t.recv(1024).decode()
         nextPred = ans.split(' ')
-        self.predKey = int(float(nextPred[1]))
         self.predPort = int(float(nextPred[0]))
+        self.predKey = int(float(nextPred[1]))
 
         # inform successor that we are it's new predecessor
-        toSend = 'updatePred ' + str(self.port) + ' '+str(self.key)
+        toSend = 'updatePred ' + self.port_str + ' '+self.key_str
         t.send(toSend.encode())
         dump = t.recv(1024).decode()
 
         # Let the nodes in the DHT know of new node joining
-        toSend = 'newJoin ' + str(self.key) + ' ' + str(self.port)
+        toSend = 'newJoin ' + self.key_str + ' ' + self.port_str
         t.send(toSend.encode())
         ans = t.recv(1024).decode()
         t.send('end'.encode())
-
-        return successorPort, successorKey
 
     # Name:    createFingerTable
     # Purpose: creates fingertable for the node using the successor
     #          fingertable contains entries for addresses of nodes
     #          responsible for key value x + 2^k
     #          where x is node's own key value and
-    #          k is from 0 - log2(key space in dht)
-    # parem:   successorPort (int): port number of successor node
-    #          successorKey  (int): key value of successor node
+    #          k is from 0 - m
+    # parem:   none
     # returns: none
 
-    def createFingerTable(self, successorPort, successorKey):
-        totalEntries = int(math.log2(self.m))
+    def createFingerTable(self):
+        totalEntries = self.m
         predictedEntries = []
+        DHTsize = 2**self.m
 
         for i in range(0, totalEntries):
-            predictedEntries.append((self.key+(2**i)) % self.m)
+            predictedEntries.append((self.key+(2**i)) % DHTsize)
 
         tmpfingerTable = fingerTableEntry(
-            successorKey, successorPort, self.ip, int(predictedEntries[0]))
+            self.successorKey, self.successorPort, self.ip, int(predictedEntries[0]))
         self.fingerTable.append(tmpfingerTable)
 
         for i in range(1, totalEntries):
             # successor will help fill our fingertable
             s = socket.socket()
-            s.connect((self.ip, successorPort))
+            s.connect((self.ip, self.successorPort))
             toSend = 'findSuccessor ' + str(predictedEntries[i])
             s.send(toSend.encode())
             temp = s.recv(1024).decode()
@@ -201,13 +237,33 @@ class chord:
             tempSplit = temp.split(' ')
             tmpfingerTable = fingerTableEntry()
             tmpfingerTable.key = int(tempSplit[1])
-            tmpfingerTable.portNo = int(tempSplit[0])
+            tmpfingerTable.port = int(tempSplit[0])
             tmpfingerTable.IPadd = self.ip
             tmpfingerTable.value = int(predictedEntries[i])
 
             self.fingerTable.append(tmpfingerTable)
 
         s.send('end'.encode())
+
+        self.fingertableSet = True
+        self.stablizeFingertable()
+
+    def stablizeFingertable(self):
+        for newEntry in self.newJoin:
+            for node in self.fingerTable:
+                if (newEntry[0] >= node.value and newEntry[0] < node.key):
+                    node.key = newEntry[0]
+                    node.port = newEntry[1]
+
+                elif (node.key < node.value and newEntry[0] < node.key):
+                    node.key = newEntry[0]
+                    node.port = newEntry[1]
+
+                elif (node.key < node.value and newEntry[0] >= node.value):
+                    node.key = newEntry[0]
+                    node.port = newEntry[1]
+
+        self.newJoin = []
 
     # Name:    fileGet
     # Purpose: Node gets files that fall under it's key space
@@ -217,8 +273,8 @@ class chord:
 
     def fileGet(self):
         s = socket.socket()
-        s.connect((self.ip, self.fingerTable[0].portNo))
-        toSend = 'fileGet '+str(self.key)
+        s.connect((self.ip, self.fingerTable[0].port))
+        toSend = 'fileGet '+self.key_str
         s.send(toSend.encode())
         numOfFiles = int(s.recv(1024).decode())
         s.send('ack'.encode())
@@ -228,35 +284,36 @@ class chord:
             fileList = ans.split(' ')
             filename = fileList[0]
             size = int(fileList[1])
-            file = os.path.join(str(self.port), filename)
+            file = os.path.join(self.port_str, filename)
             s.send('ack'.encode())
-            string = s.recv(1024).decode()
 
-            if(not os.path.exists(self.port)):
-                os.makedirs(self.port)
+            if(not os.path.exists(self.port_str)):
+                os.makedirs(self.port_str)
 
-            with open(file, 'w+') as f:
-                total_recieved = len(string)
-                f.write(string)
+            total_recieved = 0
+            with open(file, 'wb+') as f:
                 while total_recieved < size:
-                    string = s.recv(1024).decode()
-                    total_recieved += len(string)
+                    string = s.recv(1024)
+                    total_recieved += len(string.decode())
                     f.write(string)
 
             s.send('ack'.encode())
 
             numOfFiles -= 1
 
-############################################# User Handler #######################################################
+
+############################################# User Handler (thread 2 - t2) #######################################################
 
     # Name:    options
     # Purpose: Allow user to use functions provided by the node
     # parem:   none
     # returns: none
 
-    def options(self):
-        while(self.consequence):  # change this to global etc etc explained above
 
+    def options(self):
+        print("Welcome to the DHT. Kindly pick one of the options to proceed")
+        while(self.consequence):  # change this to global etc etc explained above
+            print("")
             print("choose an option:")
             print("1. Store a File")
             print("2. Find a File")
@@ -296,8 +353,8 @@ class chord:
         if os.path.isfile(filename):
             size = os.path.getsize(filename)
             file_key = self.hashery(filename)
-
-            node = self.findSuccessor(str(file_key))
+            print('filename key: ', file_key)
+            node = self.findSuccessor(file_key)
 
             user = node.split(' ')
 
@@ -328,7 +385,7 @@ class chord:
         filename = input('name of file: ')
         hash_of_file = self.hashery(filename)
 
-        node_with_file = self.findSuccessor(str(hash_of_file))
+        node_with_file = self.findSuccessor(hash_of_file)
         user = node_with_file.split(' ')
 
         z = socket.socket()
@@ -346,10 +403,10 @@ class chord:
 
             z.send('ack'.encode())
 
-            file = os.path.join(self.port, filename)
+            file = os.path.join(self.port_str, filename)
 
-            if(not os.path.exists(self.port)):
-                os.makedirs(self.port)
+            if(not os.path.exists(self.port_str)):
+                os.makedirs(self.port_str)
 
             f = open(file, "wb+")
             total_recieved = 0
@@ -366,8 +423,8 @@ class chord:
     # returns: none
 
     def viewFiles(self):
-        if(os.path.exists(self.port)):
-            fileList = os.listdir(self.port)
+        if(os.path.exists(self.port_str)):
+            fileList = os.listdir(self.port_str)
             if(len(fileList) > 0):
                 print('\n files present: ')
                 print(fileList)
@@ -388,25 +445,25 @@ class chord:
 
     def printFingerTable(self):
         print("-----------------------")
-        print("My Key : " + str(self.key))
+        print("My Key : " + self.key_str)
         print("Pred Info " + str(self.predKey) + ' ' + str(self.predPort))
         print("suc of suc " + str(self.suc_suc_key) + ' '+str(self.suc_suc))
         print()
         print('Key | Port Num | value')
         print("-----------------------")
         for entry in self.fingerTable:
-            if(entry.key % 10 == entry.key and entry.portNo % 10000 == entry.portNo):
+            if(entry.key % 10 == entry.key and entry.port % 10000 == entry.port):
                 print('  ' + str(entry.key) + ' |   ' +
-                      str(entry.portNo) + '   | ' + str(entry.value))
+                      str(entry.port) + '   | ' + str(entry.value))
             elif(entry.key % 10 == entry.key):
                 print('  ' + str(entry.key) + ' |   ' +
-                      str(entry.portNo) + '  | ' + str(entry.value))
-            elif(entry.portNo % 10000 == entry.portNo):
+                      str(entry.port) + '  | ' + str(entry.value))
+            elif(entry.port % 10000 == entry.port):
                 print(' ' + str(entry.key) + ' |   ' +
-                      str(entry.portNo) + '   | ' + str(entry.value))
+                      str(entry.port) + '   | ' + str(entry.value))
             else:
                 print(' ' + str(entry.key) + ' |   ' +
-                      str(entry.portNo) + '  | ' + str(entry.value))
+                      str(entry.port) + '  | ' + str(entry.value))
         print("-----------------------")
 
     # Name:    handleLogout
@@ -418,7 +475,7 @@ class chord:
 
     def handleLogout(self):
         # if only node in the DHT
-        if(self.fingerTable[0].portNo == int(self.port)):
+        if(self.fingerTable[0].port == self.port):
             self.consequence = False
             print("logging out")
             _thread.exit()
@@ -426,7 +483,7 @@ class chord:
         self.logoutFileHandler()
         self.informPred()
         self.nodeLeft(
-            self.port, self.fingerTable[0].portNo, self.fingerTable[0].key)
+            self.port, self.fingerTable[0].port, self.fingerTable[0].key)
 
         # shuts down infinite loops in all three threads
         self.consequence = False
@@ -434,7 +491,7 @@ class chord:
         # send one last request to self in case it is blocking
         try:
             z = socket.socket()
-            z.connect((self.ip, int(self.port)))
+            z.connect((self.ip, self.port))
             z.send('end'.encode())
             print('logging out')
         except:
@@ -447,22 +504,22 @@ class chord:
     # returns: none
 
     def logoutFileHandler(self):
-        if(os.path.exists(self.port)):
+        if(os.path.exists(self.port_str)):
             if(self.suc_unsure == True):
                 time.sleep(6)
 
             # in every case, the node's successor will be the inheritor of the files
             try:
                 z = socket.socket()
-                z.connect((self.ip, int(self.fingerTable[0].portNo)))
+                z.connect((self.ip, int(self.fingerTable[0].port)))
             except:
                 print('successor cannot be contacted')
                 return
 
-            file_list = os.listdir(self.port)
+            file_list = os.listdir(self.port_str)
 
             for file in file_list:
-                filename = os.path.join(self.port, file)
+                filename = os.path.join(self.port_str, file)
                 toSend = 'store ' + \
                     file + ' ' + \
                     str(os.path.getsize(filename))
@@ -495,14 +552,14 @@ class chord:
             return
 
         toSend = 'your new successor ' + \
-            str(self.fingerTable[0].portNo)
+            str(self.fingerTable[0].port)
         z.send(toSend.encode())
         ack = z.recv(1024).decode()
 
         z.send('end'.encode())
 
 
-############################################## Maintaining DHT ###################################################
+############################################## Maintaining DHT (thread 3 - t3) ###################################################
 
     # Name:    checkSuccessor
     # Purpose: pings it's successor every 2 seconds to see if it is alive.
@@ -517,7 +574,7 @@ class chord:
             time.sleep(2)
             try:
                 z = socket.socket()
-                z.connect((self.ip, int(self.fingerTable[0].portNo)))
+                z.connect((self.ip, int(self.fingerTable[0].port)))
 
                 z.send('hello'.encode())
                 ans = z.recv(1024).decode()
@@ -535,21 +592,21 @@ class chord:
                 else:
                     # successor needs to be updated as he is lost
                     self.nodeLeft(
-                        self.fingerTable[0].portNo, self.suc_suc, self.suc_suc_key)
-
+                        self.fingerTable[0].port, self.suc_suc, self.suc_suc_key)
                     z = socket.socket()
                     z.connect((self.ip, int(self.suc_suc)))
-                    toSend = 'I am new predecessor ' + \
-                        self.port + ' ' + str(self.key)
+                    toSend = 'updatePred ' + \
+                        self.port_str + ' ' + self.key_str
                     z.send(toSend.encode())
                     ack = z.recv(1024).decode()
                     z.send('end'.encode())
+                    print("successor lost. new suc: ", self.suc_suc)
 
                     self.count = 0
                     self.suc_unsure = False
 
 
-############################################## Request Handler ###################################################
+######################################### Request Handler (thread 1 - t1)##########################################
 
     # Name:    listener
     # Purpose: socket bound to address and port given at run time
@@ -560,7 +617,8 @@ class chord:
 
     def listener(self):
         s = socket.socket()
-        s.bind((self.ip, int(self.port)))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((self.ip, self.port))
         s.listen(10)
 
         while(self.consequence):
@@ -574,8 +632,13 @@ class chord:
     # returns: none
 
     def dealer(self, peer):
+        string = ''
         while(True):
-            string = peer.recv(1024).decode()
+            try:
+                string = peer.recv(1024).decode()
+            except:
+                string = 'end'
+
             string_in_list = string.split(' ')
 
             # edge case. no peer should be sending an empty string
@@ -584,16 +647,7 @@ class chord:
 
             # Predecessor checking to see if alive
             if(string == 'hello'):
-                toSend = str(self.fingerTable[0].portNo) + \
-                    ' ' + str(self.fingerTable[0].key)
-                peer.send(toSend.encode())
-
-            # Predecessor announcing itself
-            elif(string_in_list[0] == 'I'):
-                if(string_in_list[3] == 'predecessor'):
-                    self.predPort = int(string_in_list[4])
-                    self.predKey = int(string_in_list[5])
-                    peer.send('ack'.encode())
+                self.handlePing(peer)
 
             # new node has joined the DHT
             elif (string_in_list[0] == 'newJoin'):
@@ -614,7 +668,7 @@ class chord:
 
             # find node responsible for a certain key
             elif (string_in_list[0] == 'findSuccessor'):
-                ans = self.findSuccessor(string_in_list[1])
+                ans = self.findSuccessor(int(string_in_list[1]))
                 peer.send(ans.encode())
 
             # asking for Predecessor info
@@ -629,9 +683,9 @@ class chord:
 
             # node informed of it's new predecessor
             elif(string_in_list[0] == 'updatePred'):
-                self.predKey = int(string_in_list[2])
                 self.predPort = int(string_in_list[1])
-                peer.send('done'.encode())
+                self.predKey = int(string_in_list[2])
+                peer.send('ack'.encode())
 
             # a node has left the system
             elif(string_in_list[0] == 'nodeLeft'):
@@ -639,15 +693,34 @@ class chord:
                     string_in_list[2]), int(string_in_list[3]))
                 peer.send(ans.encode())
 
+            elif(string_in_list[0] == 'completedJoin'):
+                self.removeNewJoin(int(string_in_list[1]))
+                peer.send('ack'.encode())
+
             # peer wants to end the connection
             elif(string == 'end'):
                 peer.close()
                 _thread.exit()
 
+    # Name:    handlePing
+    # Purpose: responds to node (predecessor) when it checks if alive
+    # parem:   peer(socket object): socket object of the node
+    # returns: none
+
+    def handlePing(self, peer):
+        toSend = ''
+        if(self.fingertableSet):
+            toSend = str(self.fingerTable[0].port) + \
+                ' ' + str(self.fingerTable[0].key)
+        else:
+            toSend = str(self.successorPort) + ' ' + str(self.successorKey)
+
+        peer.send(toSend.encode())
+
     # Name:    store
     # Purpose: stores a file which another node sends
     # parem:   peer(socket object): socket object of the connecting node
-    #          codeLine(string): message from peer containing filename and size
+    #          msg(string): message from peer containing filename and size
     # returns: none
 
     def store(self, peer, msg):
@@ -657,10 +730,10 @@ class chord:
 
         peer.send('ack'.encode())
 
-        file = os.path.join(self.port, filename)
+        file = os.path.join(self.port_str, filename)
 
-        if(not os.path.exists(self.port)):
-            os.makedirs(self.port)
+        if(not os.path.exists(self.port_str)):
+            os.makedirs(self.port_str)
 
         f = open(file, 'wb+')
         totalRecieved = 0
@@ -680,16 +753,16 @@ class chord:
     # returns: none
 
     def fileSend(self, peer, data):
-        if(os.path.exists(self.port)):
+        if(os.path.exists(self.port_str)):
             k = int(data[1])
-            listOfFiles = os.listdir(self.port)
+            listOfFiles = os.listdir(self.port_str)
             toSend = list(
                 filter((lambda x: self.hashery(x) <= k), listOfFiles))
             peer.send(str(len(toSend)).encode())
             ack = peer.recv(1024).decode()
 
             for filename in toSend:
-                file = os.path.join(str(self.port), filename)
+                file = os.path.join(self.port_str, filename)
                 toSend = filename + ' ' + str(os.path.getsize(file))
                 peer.send(toSend.encode())
                 ack = peer.recv(1024).decode()
@@ -710,7 +783,7 @@ class chord:
     # returns: none
 
     def upload(self, peer, filename):
-        file = os.path.join(self.port, filename)
+        file = os.path.join(self.port_str, filename)
         if(os.path.exists(file)):
             size = os.path.getsize(file)
 
@@ -731,38 +804,50 @@ class chord:
     #          pPort(string): port num of new node
     # returns: none
 
-    def newJoinHandler(self, pKey, pPort):
+    def newJoinHandler(self, pKey, pPort):  # Handle changes!!!!!!!!!!!!!!!!!
         iKey = int(pKey)
         iPort = int(pPort)
-        print('new join: ', iKey, self.lastNewJoin)
-        if (iKey == self.key or self.lastNewJoin == iKey):
-            print('came to return')
+
+        if (iKey == self.key):
             return
         else:
-            print('came to work')
-            self.lastNewJoin = iKey
+            if(self.fingertableSet == False):
+                if((iKey, iPort) not in self.newJoin):
+                    self.newJoin.append((iKey, iPort))
 
-            for entry in self.fingerTable:  # If your finger table needs to be updated
+                s = socket.socket()
+                s.connect((self.ip, self.successorPort))
+                toSend = 'newJoin ' + pKey + ' ' + pPort
+                s.send(toSend.encode())
+                ack = s.recv(1024).decode()
+                s.send('end'.encode())
+                return
+
+            # update fingertable
+            for entry in self.fingerTable:
 
                 if (iKey >= entry.value and iKey < entry.key):
                     entry.key = iKey
-                    entry.portNo = iPort
+                    entry.port = iPort
 
                 elif (entry.key < entry.value and iKey < entry.key):
                     entry.key = iKey
-                    entry.portNo = iPort
+                    entry.port = iPort
 
                 elif (entry.key < entry.value and iKey >= entry.value):
                     entry.key = iKey
-                    entry.portNo = iPort
+                    entry.port = iPort
 
+            prevKey = -1
             for entry in self.fingerTable:
-                if entry.key != iKey:
+                if (entry.key != iKey and entry.key != self.key and entry.key != prevKey):
+                    prevKey = entry.key
                     s = socket.socket()
-                    s.connect((self.ip, entry.portNo))
+                    print('about to connect to ', self.ip, " ", entry.port)
+                    s.connect((self.ip, entry.port))
                     toSend = 'newJoin ' + pKey + ' ' + pPort
                     s.send(toSend.encode())
-                    temp = s.recv(1024).decode()
+                    ack = s.recv(1024).decode()
                     s.send('end'.encode())
 
     # Name:    contactSuc
@@ -778,7 +863,7 @@ class chord:
             print('cannot contact given successor')
             return
 
-        toSend = 'I am new predecessor ' + str(self.port) + ' ' + str(self.key)
+        toSend = 'I am new predecessor ' + self.port_str + ' ' + self.key_str
         s.send(toSend.encode())
         ack = s.recv(1024).decode()
         s.send('end'.encode())
@@ -825,92 +910,111 @@ class chord:
                     num += multiplier * 15
                     multiplier /= 2
 
-        finalHash = int(num % self.m)
+        finalHash = int(num % (2**self.m))
         return finalHash
 
     # Name:    findSuccessor
     # Purpose: finds successor node of given key value
-    # parem:   value (string): key value
-    # returns: (string): port and key of successor node
+    # parem:   key (int): key value to find successor of
+    # returns: (string): three components:
+    #                    port of successor node
+    #                    key of successor node
+    #                    boolean indicating exact match
 
-    def findSuccessor(self, value):
-        pKey = int(float(value))
+    def findSuccessor(self, key):
+        if(self.fingertableSet == False):
+            # self = key
+            if(self.key == key):
+                return self.port_str + ' ' + self.key_str + ' True'
 
-        # general case of pred < value < self
-        if (self.predKey < self.key and pKey > self.predKey and pKey < self.key):
-            return str(self.port) + ' ' + str(self.key)
+            # edge case suc < self < key e.g 8 < 18 < 56
+            if(self.key < key and self.successorKey < key and self.key > self.successorKey):
+                print('came here ', key)
+                return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
-        # edge pred < value < self where self is smallest node and hence has largest node as predecessor
-        elif (self.predKey > self.key and (pKey < self.key or pKey > self.predKey)):
-            return str(self.port) + ' ' + str(self.key)
+             # edge case key < suc < self e.g 8 < 18 < 56
+            if(self.key > key and self.successorKey > key and self.key > self.successorKey):
+                return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
-        availableKeys = []
-        availableKeys.append(self.key)
-        for entry in self.fingerTable:
-            if entry.key not in availableKeys:
-                availableKeys.append(entry.key)
+            # self < key < suc
+            if(self.key < key and key < self.successorKey and self.key < self.successorKey):
+                return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
-        availableKeys.sort()
+            # self < key = suc
+            if(self.key < key and key == self.successorKey and self.key < self.successorKey):
+                return str(self.successorPort) + ' ' + str(self.successorKey) + ' True'
 
-        for k in availableKeys:
-            if k == pKey:
-                return str(self.getPort(k)) + ' ' + str(k)
+            # send to successor to handle
+            s = socket.socket()
+            s.connect((self.ip, self.successorPort))
+            toSend = 'findSuccessor ' + str(key)
+            s.send(toSend.encode())
+            ans = s.recv(1024).decode()
+            s.send('end'.encode())
+            return ans
 
-        if pKey > self.key:
-            maxInRange = -1
-            for k in availableKeys:
-                if k > self.key and k < pKey and k != self.lastNewJoin and k > maxInRange:
-                    maxInRange = k
-            if maxInRange != -1:
-                s = socket.socket()
-                s.connect((self.ip, self.getPort(maxInRange)))
-                toSend = 'findSuccessor ' + str(pKey)
-                s.send(toSend.encode())
-                returnVal = s.recv(1024).decode()
-                s.send('end'.encode())
-                return returnVal
+        # else if fingertable is set
+        successor = self.fingerTable[0]
+        print(successor.key)
+        print(type(key), type(successor.key), type(self.key))
 
-        else:
-            lowest = self.m+1
-            for k in availableKeys:
-                if k != self.key and k < lowest and k != self.lastNewJoin and k < pKey:
-                    lowest = k
+        # self = key
+        if(self.key == key):
+            print(key, ' 1 ', self.key)
+            return self.port_str + ' ' + self.key_str + ' True'
 
-            if lowest != (self.m+1):
-                s = socket.socket()
-                s.connect((self.ip, self.getPort(lowest)))
-                toSend = 'findSuccessor ' + str(pKey)
-                s.send(toSend.encode())
-                returnVal = s.recv(1024).decode()
-                s.send('end'.encode())
-                return returnVal
+        # edge case suc < self < key e.g 8 < 18 < 56
+        if(self.key < key and successor.key < key and self.key > successor.key):
+            print(key, ' 2 ', successor.key)
+            return str(successor.port) + ' ' + str(successor.key) + ' False'
 
-        # Take a decision if program reached here request can't be forwarded
-        for i in range(0, len(availableKeys)):
-            if availableKeys[i] > pKey:
-                return str(self.getPort(availableKeys[i])) + ' ' + str(availableKeys[i])
+        # edge case key < suc < self e.g 8 < 18 < 56
+        if(self.key > key and successor.key > key and self.key > successor.key):
+            print(key, ' 2 ', successor.key)
+            return str(successor.port) + ' ' + str(successor.key) + ' False'
 
-        # return first value in available keys
-        return str(self.getPort(availableKeys[0])) + ' ' + str(availableKeys[0])
+        # self < key < suc
+        if(self.key < key and key < successor.key and self.key < successor.key):
+            print(key, ' 3 ', successor.key)
+            return str(successor.port) + ' ' + str(successor.key) + ' False'
 
-    # Name:    getPort
-    # Purpose: finds port number being used by node of a
-    #          specific key value from it's fingertable
-    # parem:   pKey (string): key value
-    # returns: (int): port number of node
+        # self < key = suc
+        if(self.key < key and key == successor.key and self.key < successor.key):
+            print(key, ' 4 ', successor.key)
+            return str(successor.port) + ' ' + str(successor.key) + ' True'
 
-    def getPort(self, pKey):
-        for entry in self.fingerTable:
-            if entry.key == pKey:
-                return entry.portNo
+        # send key to largest node < key to find it's successor
+        for x in range(self.m-1, -1, -1):
+            if(self.key != self.fingerTable[x].key and
+                    self.fingerTable[x].key < key):
+                try:
+                    s = socket.socket()
+                    s.connect((self.ip, self.fingerTable[x].port))
+                    toSend = 'findSuccessor ' + str(key)
+                    s.send(toSend.encode())
+                    ans = s.recv(1024).decode()
+                    s.send('end'.encode())
+                    return ans
+                except:
+                    continue
 
-        if pKey == self.key:
-            return self.port
+        # could not find any node < key so send to largest key we know to figure out
+        for x in range(self.m-1, -1, -1):
+            if(self.key != self.fingerTable[x].key):
+                try:
+                    s = socket.socket()
+                    s.connect((self.ip, self.fingerTable[x]))
+                    toSend = 'findSuccessor ' + str(key)
+                    s.send(toSend.encode())
+                    ans = s.recv(1024).decode()
+                    s.send('end'.encode())
+                    return ans
+                except:
+                    continue
 
-        # error. no node found in fingertable with this key
-        else:
-            print("error: no node found corresponding to key in fingertable")
-            return -1
+        # exception when nothing else
+        print(key, ' 5 ', self.key)
+        return self.port_str + ' ' + self.key_str + ' False'
 
     # Name:    nodeLeft
     # Purpose: informs all entries in fingertable of the loss of a node.
@@ -926,31 +1030,31 @@ class chord:
             return 'done'
 
         else:
-            self.lastLeft = key
-            for entry in self.fingerTable:
-                # connect to node and forward the request
-                if entry.portNo != key:
+            if(self.fingertableSet == False):
+                if(key != self.successorKey):
                     s = socket.socket()
-                    s.connect((self.ip, entry.portNo))
+                    s.connect((self.ip, self.successorPort))
                     toSend = 'nodeLeft ' + \
                         str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
                     s.send(toSend.encode())
                     resp = s.recv(1024).decode()
                     s.send('end'.encode())
 
-            if self.predPort != key:
-                s = socket.socket()
-                s.connect((self.ip, self.predPort))
-                toSend = 'nodeLeft '+str(key) + ' ' + \
-                    str(sucPort) + ' ' + str(sucHashKey)
-                s.send(toSend.encode())
-                resp = s.recv(1024).decode()
-                s.send('end'.encode())
+            self.lastLeft = key
+            for entry in self.fingerTable:
+                if entry.key != key and entry.key != self.key:
+                    s = socket.socket()
+                    s.connect((self.ip, entry.port))
+                    toSend = 'nodeLeft ' + \
+                        str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
+                    s.send(toSend.encode())
+                    resp = s.recv(1024).decode()
+                    s.send('end'.encode())
 
         # update your own fingerTable
             for entry in self.fingerTable:
-                if entry.portNo == key:
-                    entry.portNo = sucPort
+                if entry.port == key:
+                    entry.port = sucPort
                     entry.key = sucHashKey
             return 'updated'
 
