@@ -40,7 +40,7 @@
             "program": "dht.py",
             "console": "integratedTerminal",
             "args": [
-                "35000",
+                "28973",
                 "9000"
             ]
         },

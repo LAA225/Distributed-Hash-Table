@@ -1,4 +1,3 @@
-from genericpath import exists
 import socket
 import os
 import sys
@@ -6,7 +5,6 @@ import _thread
 import threading
 import hashlib
 import time
-import math
 
 
 class fingerTableEntry:
@@ -64,6 +62,9 @@ class chord:
 
     # key of node that is currently leaving
     lastLeft = -1
+
+    # key of node that just joined
+    lastNewJoin = -1
 
     # flag indicating if fingertable available for use
     fingertableSet = False
@@ -808,9 +809,10 @@ class chord:
         iKey = int(pKey)
         iPort = int(pPort)
 
-        if (iKey == self.key):
+        if (iKey == self.key or iKey == self.lastNewJoin):
             return
         else:
+            self.lastNewJoin = iKey
             if(self.fingertableSet == False):
                 if((iKey, iPort) not in self.newJoin):
                     self.newJoin.append((iKey, iPort))
