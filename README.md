@@ -6,7 +6,7 @@ Similar to chord, nodes in this DHT leverage a circular peer to peer distributed
 
 <sup>1</sup> first node encountered when moving anti clockwise from node
 
-[Figure 1](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/DHT1.png?raw=true)
+![Figure 1](https://www.researchgate.net/figure/fig2_228057545)
 This image is a visual example of what a working DHT looks like. Each dot on the circle represents a node with it's assigned key. Files indicated with squares are shown assigned to nodes according to their keys.
 
 This arrangement allows for all nodes to distribute their loads efficiently and fairly among themselves. Yet be able to find the correct node for storing or looking up a file.
