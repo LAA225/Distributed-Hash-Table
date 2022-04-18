@@ -78,6 +78,8 @@ class chord:
         # data check:
         try:
             portInt = int(own_port)
+            if(portInt > 65535 or portInt < 0):
+                raise ValueError
         except:
             print("port needs to be an integer between 0 - 65535")
             sys.exit()
@@ -110,6 +112,8 @@ class chord:
             # data check
             try:
                 otherPortInt = int(other_port)
+                if(otherPortInt > 65535 or otherPortInt < 0):
+                    raise ValueError
             except:
                 print("port needs to be an integer between 0 - 65535")
                 sys.exit()
@@ -309,7 +313,6 @@ class chord:
     # Purpose: Allow user to use functions provided by the node
     # parem:   none
     # returns: none
-
 
     def options(self):
         print("Welcome to the DHT. Kindly pick one of the options to proceed")
@@ -514,7 +517,7 @@ class chord:
                 z = socket.socket()
                 z.connect((self.ip, int(self.fingerTable[0].port)))
             except:
-                print('successor cannot be contacted')
+                print('cannot contact successor')
                 return
 
             file_list = os.listdir(self.port_str)
@@ -533,9 +536,9 @@ class chord:
 
                 ack = z.recv(1024).decode()
                 f.close()
-                # os.remove(filename)
+                os.remove(filename)
 
-            # os.rmdir(self.port)
+            os.rmdir(self.port)
             z.send('end'.encode())
 
     # Name:    informPred
@@ -549,7 +552,7 @@ class chord:
             z = socket.socket()
             z.connect((self.ip, int(self.predPort)))
         except:
-            print('cannot contact predecessor')
+            print('cannot contact pred')
             return
 
         toSend = 'your new successor ' + \
@@ -569,6 +572,7 @@ class chord:
     #          it's new successor. informs the rest of the dht about it's leaving.
     # parem:   none
     # returns: none
+
 
     def checkSuccessor(self):
         while(self.consequence):
@@ -614,7 +618,6 @@ class chord:
     #          listening for any connections.
     # parem:   none
     # returns: none
-
 
     def listener(self):
         s = socket.socket()
@@ -756,6 +759,11 @@ class chord:
     def fileSend(self, peer, data):
         if(os.path.exists(self.port_str)):
             k = int(data[1])
+
+            # if predecessor is last node in the dht
+            if(k > self.key):
+                k = self.m**2
+
             listOfFiles = os.listdir(self.port_str)
             toSend = list(
                 filter((lambda x: self.hashery(x) <= k), listOfFiles))
@@ -768,7 +776,7 @@ class chord:
                 peer.send(toSend.encode())
                 ack = peer.recv(1024).decode()
 
-                f = open(filename, 'rb')
+                f = open(file, 'rb')
                 for chunk in iter(lambda: f.read(1024), b''):
                     peer.send(chunk)
 
@@ -845,7 +853,6 @@ class chord:
                 if (entry.key != iKey and entry.key != self.key and entry.key != prevKey):
                     prevKey = entry.key
                     s = socket.socket()
-                    print('about to connect to ', self.ip, " ", entry.port)
                     s.connect((self.ip, entry.port))
                     toSend = 'newJoin ' + pKey + ' ' + pPort
                     s.send(toSend.encode())
@@ -865,7 +872,7 @@ class chord:
             print('cannot contact given successor')
             return
 
-        toSend = 'I am new predecessor ' + self.port_str + ' ' + self.key_str
+        toSend = 'updatePred ' + self.port_str + ' ' + self.key_str
         s.send(toSend.encode())
         ack = s.recv(1024).decode()
         s.send('end'.encode())
@@ -924,28 +931,35 @@ class chord:
     #                    boolean indicating exact match
 
     def findSuccessor(self, key):
+        print('came in find successor: ', key, ' ', self.key)
         if(self.fingertableSet == False):
+            print('came before fingertable set ', key)
             # self = key
             if(self.key == key):
+                print('nf ', key, ' 1 ', self.key)
                 return self.port_str + ' ' + self.key_str + ' True'
 
             # edge case suc < self < key e.g 8 < 18 < 56
             if(self.key < key and self.successorKey < key and self.key > self.successorKey):
-                print('came here ', key)
+                print('nf ', key, ' 2 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
              # edge case key < suc < self e.g 8 < 18 < 56
             if(self.key > key and self.successorKey > key and self.key > self.successorKey):
+                print('nf ', key, ' 3 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
             # self < key < suc
             if(self.key < key and key < self.successorKey and self.key < self.successorKey):
+                print('nf ', key, ' 4 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
             # self < key = suc
             if(self.key < key and key == self.successorKey and self.key < self.successorKey):
+                print('nf ', key, ' 5 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' True'
 
+            print('had to come to circle ', key)
             # send to successor to handle
             s = socket.socket()
             s.connect((self.ip, self.successorPort))
@@ -957,8 +971,6 @@ class chord:
 
         # else if fingertable is set
         successor = self.fingerTable[0]
-        print(successor.key)
-        print(type(key), type(successor.key), type(self.key))
 
         # self = key
         if(self.key == key):
@@ -972,50 +984,64 @@ class chord:
 
         # edge case key < suc < self e.g 8 < 18 < 56
         if(self.key > key and successor.key > key and self.key > successor.key):
-            print(key, ' 2 ', successor.key)
+            print(key, ' 3 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' False'
 
         # self < key < suc
         if(self.key < key and key < successor.key and self.key < successor.key):
-            print(key, ' 3 ', successor.key)
+            print(key, ' 4 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' False'
 
         # self < key = suc
         if(self.key < key and key == successor.key and self.key < successor.key):
-            print(key, ' 4 ', successor.key)
+            print(key, ' 5 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' True'
 
         # send key to largest node < key to find it's successor
-        for x in range(self.m-1, -1, -1):
+        solverKey = -1
+        solverPort = -1
+        largestKey = -1
+        largestPort = -1
+        for x in range(0, self.m):
             if(self.key != self.fingerTable[x].key and
-                    self.fingerTable[x].key < key):
-                try:
-                    s = socket.socket()
-                    s.connect((self.ip, self.fingerTable[x].port))
-                    toSend = 'findSuccessor ' + str(key)
-                    s.send(toSend.encode())
-                    ans = s.recv(1024).decode()
-                    s.send('end'.encode())
-                    return ans
-                except:
-                    continue
+                    self.fingerTable[x].key < key and
+                    solverKey < self.fingerTable[x].key):
+                solverKey = self.fingerTable[x].key
+                solverPort = self.fingerTable[x].port
+
+            if(self.key != self.fingerTable[x].key and largestKey < self.fingerTable[x].key):
+                largestKey = self.fingerTable[x].key
+                largestPort = self.fingerTable[x].port
+
+        try:
+            print('in nextBest ' + str(self.fingerTable[x].key))
+            s = socket.socket()
+            s.connect((self.ip, solverPort))
+            toSend = 'findSuccessor ' + str(key)
+            s.send(toSend.encode())
+            ans = s.recv(1024).decode()
+            s.send('end'.encode())
+            return ans
+        except:
+            pass
 
         # could not find any node < key so send to largest key we know to figure out
-        for x in range(self.m-1, -1, -1):
-            if(self.key != self.fingerTable[x].key):
-                try:
-                    s = socket.socket()
-                    s.connect((self.ip, self.fingerTable[x]))
-                    toSend = 'findSuccessor ' + str(key)
-                    s.send(toSend.encode())
-                    ans = s.recv(1024).decode()
-                    s.send('end'.encode())
-                    return ans
-                except:
-                    continue
+
+        if(successor.key > self.key):
+            try:
+                print('in larger ' + str(self.fingerTable[x].key))
+                s = socket.socket()
+                s.connect((self.ip, largestPort))
+                toSend = 'findSuccessor ' + str(key)
+                s.send(toSend.encode())
+                ans = s.recv(1024).decode()
+                s.send('end'.encode())
+                return ans
+            except:
+                pass
 
         # exception when nothing else
-        print(key, ' 5 ', self.key)
+        print(key, ' 6 ', self.key)
         return self.port_str + ' ' + self.key_str + ' False'
 
     # Name:    nodeLeft
@@ -1032,6 +1058,8 @@ class chord:
             return 'done'
 
         else:
+            self.lastLeft = key
+
             if(self.fingertableSet == False):
                 if(key != self.successorKey):
                     s = socket.socket()
@@ -1042,11 +1070,13 @@ class chord:
                     resp = s.recv(1024).decode()
                     s.send('end'.encode())
 
-            self.lastLeft = key
             for entry in self.fingerTable:
                 if entry.key != key and entry.key != self.key:
-                    s = socket.socket()
-                    s.connect((self.ip, entry.port))
+                    try:
+                        s = socket.socket()
+                        s.connect((self.ip, entry.port))
+                    except:
+                        continue
                     toSend = 'nodeLeft ' + \
                         str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
                     s.send(toSend.encode())
