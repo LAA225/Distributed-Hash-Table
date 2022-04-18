@@ -25,7 +25,7 @@ class fingerTableEntry:
         self.value = pValue
 
 
-class chord:
+class node:
     # own details
     port = -1
     ip = '127.0.0.1'
@@ -69,7 +69,8 @@ class chord:
     # flag indicating if fingertable available for use
     fingertableSet = False
 
-    # contains (key, port) tuples for any new joins that informed of their arrival while fingertable was made
+    # contains (key, port) tuples for any new joins that
+    #   informed of their arrival while fingertable was being configured
     newJoin = []
 
 ############################################# Setup Node ########################################################
@@ -156,7 +157,6 @@ class chord:
     # returns: none
 
     def connectToChord(self, otherPort):
-        print('my key: ', self.key)
         try:
             z = socket.socket()
             z.connect((self.ip, otherPort))
@@ -167,7 +167,6 @@ class chord:
 
         # find successor using reference node
         while True:
-            print('going to find successor')
             toSend = 'findSuccessor ' + self.key_str
             z.send(toSend.encode())
             ans = z.recv(1024).decode()
@@ -178,13 +177,12 @@ class chord:
             existsAlready = ansSplit[2]
 
             if(existsAlready == 'False'):
-                print('found successor ', self.successorPort)
                 break
+
             # if node with key exists then give it new one
             else:
                 self.key = (self.key+1) % (2**self.m)
                 self.key_str = str(self.key)
-                print('new key ', self.key)
 
         z.send('end'.encode())
 
@@ -314,6 +312,7 @@ class chord:
     # parem:   none
     # returns: none
 
+
     def options(self):
         print("Welcome to the DHT. Kindly pick one of the options to proceed")
         while(self.consequence):  # change this to global etc etc explained above
@@ -352,7 +351,8 @@ class chord:
     # returns: none
 
     def PUT(self):
-        filename = input("enter filename: ")
+        filename = input(
+            "enter filename (file should be in current directory): ")
 
         if os.path.isfile(filename):
             size = os.path.getsize(filename)
@@ -573,7 +573,6 @@ class chord:
     # parem:   none
     # returns: none
 
-
     def checkSuccessor(self):
         while(self.consequence):
             time.sleep(2)
@@ -618,6 +617,7 @@ class chord:
     #          listening for any connections.
     # parem:   none
     # returns: none
+
 
     def listener(self):
         s = socket.socket()
@@ -931,35 +931,28 @@ class chord:
     #                    boolean indicating exact match
 
     def findSuccessor(self, key):
-        print('came in find successor: ', key, ' ', self.key)
+        # fingertable not operational
         if(self.fingertableSet == False):
-            print('came before fingertable set ', key)
             # self = key
             if(self.key == key):
-                print('nf ', key, ' 1 ', self.key)
                 return self.port_str + ' ' + self.key_str + ' True'
 
             # edge case suc < self < key e.g 8 < 18 < 56
             if(self.key < key and self.successorKey < key and self.key > self.successorKey):
-                print('nf ', key, ' 2 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
              # edge case key < suc < self e.g 8 < 18 < 56
             if(self.key > key and self.successorKey > key and self.key > self.successorKey):
-                print('nf ', key, ' 3 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
             # self < key < suc
             if(self.key < key and key < self.successorKey and self.key < self.successorKey):
-                print('nf ', key, ' 4 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' False'
 
             # self < key = suc
             if(self.key < key and key == self.successorKey and self.key < self.successorKey):
-                print('nf ', key, ' 5 ', self.successorKey)
                 return str(self.successorPort) + ' ' + str(self.successorKey) + ' True'
 
-            print('had to come to circle ', key)
             # send to successor to handle
             s = socket.socket()
             s.connect((self.ip, self.successorPort))
@@ -974,27 +967,22 @@ class chord:
 
         # self = key
         if(self.key == key):
-            print(key, ' 1 ', self.key)
             return self.port_str + ' ' + self.key_str + ' True'
 
         # edge case suc < self < key e.g 8 < 18 < 56
         if(self.key < key and successor.key < key and self.key > successor.key):
-            print(key, ' 2 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' False'
 
         # edge case key < suc < self e.g 8 < 18 < 56
         if(self.key > key and successor.key > key and self.key > successor.key):
-            print(key, ' 3 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' False'
 
         # self < key < suc
         if(self.key < key and key < successor.key and self.key < successor.key):
-            print(key, ' 4 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' False'
 
         # self < key = suc
         if(self.key < key and key == successor.key and self.key < successor.key):
-            print(key, ' 5 ', successor.key)
             return str(successor.port) + ' ' + str(successor.key) + ' True'
 
         # send key to largest node < key to find it's successor
@@ -1014,7 +1002,6 @@ class chord:
                 largestPort = self.fingerTable[x].port
 
         try:
-            print('in nextBest ' + str(self.fingerTable[x].key))
             s = socket.socket()
             s.connect((self.ip, solverPort))
             toSend = 'findSuccessor ' + str(key)
@@ -1026,10 +1013,8 @@ class chord:
             pass
 
         # could not find any node < key so send to largest key we know to figure out
-
         if(successor.key > self.key):
             try:
-                print('in larger ' + str(self.fingerTable[x].key))
                 s = socket.socket()
                 s.connect((self.ip, largestPort))
                 toSend = 'findSuccessor ' + str(key)
@@ -1041,7 +1026,6 @@ class chord:
                 pass
 
         # exception when nothing else
-        print(key, ' 6 ', self.key)
         return self.port_str + ' ' + self.key_str + ' False'
 
     # Name:    nodeLeft
@@ -1093,10 +1077,10 @@ class chord:
 
 def Main():
     if(len(sys.argv) == 3):  # additional node
-        c = chord(sys.argv[1], sys.argv[2])
+        c = node(sys.argv[1], sys.argv[2])
 
     elif(len(sys.argv) == 2):  # first node
-        c = chord(sys.argv[1])
+        c = node(sys.argv[1])
 
     else:
         print('for first node: python <filename> <portNum>')
