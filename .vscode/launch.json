@@ -29,7 +29,7 @@
             "program": "dht.py",
             "console": "integratedTerminal",
             "args": [
-                "9000",
+                "12090",
                 "19000"
             ]
         },
@@ -40,8 +40,8 @@
             "program": "dht.py",
             "console": "integratedTerminal",
             "args": [
-                "19000",
-                "23888"
+                "23948",
+                "9000"
             ]
         },
         {
@@ -51,8 +51,8 @@
             "program": "dht.py",
             "console": "integratedTerminal",
             "args": [
-                "39847",
-                "23888"
+                "19000",
+                "9000"
             ]
         },
         {
@@ -62,7 +62,7 @@
             "program": "dht.py",
             "console": "integratedTerminal",
             "args": [
-                "23888"
+                "9000"
             ]
         }
     ]

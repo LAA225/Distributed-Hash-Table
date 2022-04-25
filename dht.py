@@ -5,6 +5,8 @@ import _thread
 import threading
 import hashlib
 import time
+from tkinter import filedialog
+import tkinter as tk
 
 
 class fingerTableEntry:
@@ -287,17 +289,17 @@ class node:
             fileList = ans.split(' ')
             filename = fileList[0]
             size = int(fileList[1])
-            file = os.path.join(self.port_str, filename)
+            file = os.path.join(self.key_str, filename)
             s.send('ack'.encode())
 
-            if(not os.path.exists(self.port_str)):
-                os.makedirs(self.port_str)
+            if(not os.path.exists(self.key_str)):
+                os.makedirs(self.key_str)
 
             total_recieved = 0
             with open(file, 'wb+') as f:
                 while total_recieved < size:
                     string = s.recv(1024)
-                    total_recieved += len(string.decode())
+                    total_recieved += len(string)
                     f.write(string)
 
             s.send('ack'.encode())
@@ -311,7 +313,6 @@ class node:
     # Purpose: Allow user to use functions provided by the node
     # parem:   none
     # returns: none
-
 
     def options(self):
         print("Welcome to the DHT. Kindly pick one of the options to proceed")
@@ -351,11 +352,14 @@ class node:
     # returns: none
 
     def PUT(self):
-        filename = input(
-            "enter filename (file should be in current directory): ")
+        filepath = self.fileDialog('getFile')
 
-        if os.path.isfile(filename):
-            size = os.path.getsize(filename)
+        if os.path.isfile(filepath):
+            size = os.path.getsize(filepath)
+
+            filename = filepath.split('/')[-1]
+            print('filename: ', filename)
+
             file_key = self.hashery(filename)
             print('filename key: ', file_key)
             node = self.findSuccessor(file_key)
@@ -368,7 +372,7 @@ class node:
             z.send(toSend.encode())
             ack = z.recv(1024).decode()
 
-            f = open(filename, 'rb')
+            f = open(filepath, 'rb')
             for chunk in iter(lambda: f.read(1024), b''):
                 z.send(chunk)
 
@@ -377,7 +381,7 @@ class node:
             z.send('end'.encode())
 
         else:
-            print("either file doesnot exist or is not in current directory")
+            print("either file doesnot exist or no file selected")
 
     # Name:    GET
     # Purpose: Find the required file from the system using it's key.
@@ -407,17 +411,17 @@ class node:
 
             z.send('ack'.encode())
 
-            file = os.path.join(self.port_str, filename)
-
-            if(not os.path.exists(self.port_str)):
-                os.makedirs(self.port_str)
+            dir = self.fileDialog('getDir')
+            file = os.path.join(dir, filename)
 
             f = open(file, "wb+")
             total_recieved = 0
             while total_recieved < size:
                 string = z.recv(1024)
-                total_recieved += len(string.decode())
+                total_recieved += len(string)
                 f.write(string)
+
+            print('file downloaded')
 
         z.send('end'.encode())
 
@@ -427,8 +431,8 @@ class node:
     # returns: none
 
     def viewFiles(self):
-        if(os.path.exists(self.port_str)):
-            fileList = os.listdir(self.port_str)
+        if(os.path.exists(self.key_str)):
+            fileList = os.listdir(self.key_str)
             if(len(fileList) > 0):
                 print('\n files present: ')
                 print(fileList)
@@ -508,7 +512,7 @@ class node:
     # returns: none
 
     def logoutFileHandler(self):
-        if(os.path.exists(self.port_str)):
+        if(os.path.exists(self.key_str)):
             if(self.suc_unsure == True):
                 time.sleep(6)
 
@@ -520,10 +524,10 @@ class node:
                 print('cannot contact successor')
                 return
 
-            file_list = os.listdir(self.port_str)
+            file_list = os.listdir(self.key_str)
 
             for file in file_list:
-                filename = os.path.join(self.port_str, file)
+                filename = os.path.join(self.key_str, file)
                 toSend = 'store ' + \
                     file + ' ' + \
                     str(os.path.getsize(filename))
@@ -538,7 +542,7 @@ class node:
                 f.close()
                 os.remove(filename)
 
-            os.rmdir(self.port)
+            os.rmdir(self.key_str)
             z.send('end'.encode())
 
     # Name:    informPred
@@ -573,6 +577,7 @@ class node:
     # parem:   none
     # returns: none
 
+
     def checkSuccessor(self):
         while(self.consequence):
             time.sleep(2)
@@ -584,7 +589,7 @@ class node:
                 ans = z.recv(1024).decode()
                 anssplit = ans.split(' ')
 
-                self.suc_suc = int(anssplit[0])
+                self.suc_suc = int(float(anssplit[0]))
                 self.suc_suc_key = int(float(anssplit[1]))
                 z.send('end'.encode())
 
@@ -595,8 +600,11 @@ class node:
 
                 else:
                     # successor needs to be updated as he is lost
-                    self.nodeLeft(
-                        self.fingerTable[0].port, self.suc_suc, self.suc_suc_key)
+                    print("successor lost. new suc: ", self.suc_suc)
+
+                    self.count = 0
+                    self.suc_unsure = False
+
                     z = socket.socket()
                     z.connect((self.ip, int(self.suc_suc)))
                     toSend = 'updatePred ' + \
@@ -604,10 +612,9 @@ class node:
                     z.send(toSend.encode())
                     ack = z.recv(1024).decode()
                     z.send('end'.encode())
-                    print("successor lost. new suc: ", self.suc_suc)
 
-                    self.count = 0
-                    self.suc_unsure = False
+                    self.nodeLeft(
+                        self.fingerTable[0].key, self.suc_suc, self.suc_suc_key)
 
 
 ######################################### Request Handler (thread 1 - t1)##########################################
@@ -617,7 +624,6 @@ class node:
     #          listening for any connections.
     # parem:   none
     # returns: none
-
 
     def listener(self):
         s = socket.socket()
@@ -734,10 +740,10 @@ class node:
 
         peer.send('ack'.encode())
 
-        file = os.path.join(self.port_str, filename)
+        file = os.path.join(self.key_str, filename)
 
-        if(not os.path.exists(self.port_str)):
-            os.makedirs(self.port_str)
+        if(not os.path.exists(self.key_str)):
+            os.makedirs(self.key_str)
 
         f = open(file, 'wb+')
         totalRecieved = 0
@@ -757,21 +763,43 @@ class node:
     # returns: none
 
     def fileSend(self, peer, data):
-        if(os.path.exists(self.port_str)):
+        if(os.path.exists(self.key_str)):
             k = int(data[1])
 
-            # if predecessor is last node in the dht
-            if(k > self.key):
-                k = self.m**2
+            listOfFiles = os.listdir(self.key_str)
+            toSend = []
 
-            listOfFiles = os.listdir(self.port_str)
-            toSend = list(
-                filter((lambda x: self.hashery(x) <= k), listOfFiles))
+            s = socket.socket()
+            s.connect((self.ip, self.predPort))
+            s.send('getPredInfo'.encode())
+            ans = s.recv(1024).decode()
+            predOfPred = ans.split(' ')
+            predOfPredKey = int(predOfPred[1])
+
+            # edge case predecessor is largest node in dht
+            if(k > self.key and predOfPredKey < k):
+                toSend = list(
+                    filter((lambda x: self.hashery(x) <= k
+                            and self.hashery(x) > predOfPredKey), listOfFiles)
+                )
+
+            # edge case predecessor is smallest node in dht
+            elif(k < self.key and predOfPredKey > k):
+                toSend = list(
+                    filter((lambda x: self.hashery(x) <= k and self.hashery(
+                        x) > predOfPredKey), listOfFiles)
+                )
+
+            # general case
+            elif(k < self.key):
+                toSend = list(
+                    filter((lambda x: self.hashery(x) <= k), listOfFiles))
+
             peer.send(str(len(toSend)).encode())
             ack = peer.recv(1024).decode()
 
             for filename in toSend:
-                file = os.path.join(self.port_str, filename)
+                file = os.path.join(self.key_str, filename)
                 toSend = filename + ' ' + str(os.path.getsize(file))
                 peer.send(toSend.encode())
                 ack = peer.recv(1024).decode()
@@ -781,6 +809,8 @@ class node:
                     peer.send(chunk)
 
                 ack = peer.recv(1024).decode()
+                f.close()
+                os.remove(file)
 
         else:
             peer.send('0'.encode())
@@ -792,7 +822,7 @@ class node:
     # returns: none
 
     def upload(self, peer, filename):
-        file = os.path.join(self.port_str, filename)
+        file = os.path.join(self.key_str, filename)
         if(os.path.exists(file)):
             size = os.path.getsize(file)
 
@@ -1045,17 +1075,24 @@ class node:
             self.lastLeft = key
 
             if(self.fingertableSet == False):
-                if(key != self.successorKey):
-                    s = socket.socket()
-                    s.connect((self.ip, self.successorPort))
-                    toSend = 'nodeLeft ' + \
-                        str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
-                    s.send(toSend.encode())
-                    resp = s.recv(1024).decode()
-                    s.send('end'.encode())
+                if key == self.successorKey:
+                    self.successorKey = sucHashKey
+                    self.successorPort = sucPort
 
+                s = socket.socket()
+                s.connect((self.ip, self.successorPort))
+                toSend = 'nodeLeft ' + \
+                    str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
+                s.send(toSend.encode())
+                resp = s.recv(1024).decode()
+                s.send('end'.encode())
+
+                return 'updated'
+
+            lastKey = -1
             for entry in self.fingerTable:
-                if entry.key != key and entry.key != self.key:
+                if entry.key != key and entry.key != self.key and entry.key != lastKey:
+                    lastKey = entry.key
                     try:
                         s = socket.socket()
                         s.connect((self.ip, entry.port))
@@ -1067,12 +1104,44 @@ class node:
                     resp = s.recv(1024).decode()
                     s.send('end'.encode())
 
-        # update your own fingerTable
+            # edge case lost key is the only one in fingertable
+            if(lastKey == -1):
+                s = socket.socket()
+                s.connect((self.ip, sucPort))
+                toSend = 'nodeLeft ' + \
+                    str(key) + ' ' + str(sucPort) + ' ' + str(sucHashKey)
+                s.send(toSend.encode())
+                resp = s.recv(1024).decode()
+                s.send('end'.encode())
+
+            # update your own fingerTable
             for entry in self.fingerTable:
-                if entry.port == key:
+                if entry.key == key:
                     entry.port = sucPort
                     entry.key = sucHashKey
             return 'updated'
+
+    # Name:    fileDialog
+    # Purpose: Opens file Dialogs for GUI for getting paths
+    # parem:   mode (string): requirement of user
+    # returns: (string): path of file / dir
+
+    def fileDialog(self, mode):
+        root = tk.Tk()
+        root.wm_attributes('-topmost', True)
+        root.withdraw()
+        path = ''
+
+        if(mode == 'getFile'):
+            print('\nchoose file to upload\n')
+            path = filedialog.askopenfilename(parent=root)
+
+        elif(mode == 'getDir'):
+            print('\nchoose folder to download file to \n')
+            path = filedialog.askdirectory()
+
+        root.destroy()
+        return path
 
 
 def Main():
