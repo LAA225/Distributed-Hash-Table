@@ -22,9 +22,6 @@ To solve this the hash table makes use of consistent hashing where the hashing s
 
 Furthermore, the node arrangement is fault tolerant and can detect node failures and fix fingertables within 6 seconds. However, there is no redundancy implemented so if a node failure occurs, the files it holds go with it. Hence implementing redundancy is to be the target of later versions.
 
-<sup>1</sup> first node encountered when moving anti clockwise from node
-<sup>2</sup> fingertables contain entries for keys x + 2<sup>i</sup> where x is the node's own key and i is integers 1,2,3,4...
-
 ## Implementation
 
 ### Node Setup
@@ -34,9 +31,6 @@ Each instance of the class _node_ in _dht.py_ serves as single node in the netwo
 Once a node has identified its successor, it formally joins the DHT and informs other nodes of it's existence. Which enables them to update their own fingertables. The node then is active and builds its own fingertable over time.
 
 The node can now fulfill its main purpose: storing and looking up files.
-
-<sup>3</sup> In full scale each node would use both IP addresses and port numbers to connect to other nodes. However for demonstrative purposes, this dht runs locally with each node running as a seperate process using different port numbers to simulate the chord. Later versions may incorporate both ip and port.
-<sup>4</sup> First node encountered moving clockwise from node
 
 ### User Handler and Request Handler
 
@@ -48,7 +42,7 @@ Every node provides functionality to the user to:
 - view fingertable
 - logout
 
-Files are stored based on name provided by the user. Once file existence is confirmed<sup>5</sup>, the node finds it's key and then the node responsible for it. It contacts the node using a socket and sends it the data necessary to store the file. Each node stores files it is responsible for in a directory<sup>6</sup> named after it's own key.
+Files are stored based on name provided by the user. Once file existence is confirmed, the node finds it's key and then the node responsible for it. It contacts the node using a socket and sends it the data necessary to store the file. Each node stores files it is responsible for in a directory<sup>5</sup> named after it's own key.
 
 To find a file, the user has to supply it's name along with it's extension. The node is then able to find it's corresponding key and the node that should be responsible for it. That node is then contacted for information on the file. If it exists, then is sent again through a socket connection and stored in a directory with the node's key as it's filename where it can be accessed by the user.
 
@@ -59,9 +53,6 @@ Fingertable details along with information about the node's key, predecessor and
 ![Figure 3](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/fingertableExample.PNG?raw=true)
 
 Logout allows the node to go offline gracefully by sending all it's files to it's successor which is their rightful inheritor. It also informs its predecessor and successor of it's leaving so that the DHT arrangement can be smoothly updated.
-
-<sup>5</sup> The file must be placed in the current working directory. This limitation is a con of keeping this project free of any prerequisite libraries. Otherwise a fileDialog box would be added to accomodate more complicated filepaths.
-<sup>6</sup> Despite being a folder a apart, no node can access another node's files. It is meant to replicate the effect of running a node on individual machines.
 
 ### Maintaining DHT
 
@@ -89,3 +80,9 @@ To run first node:
 
 To run every other node:
 ` python dht.py <node port num> <port number of any online node>`
+
+<sup>1</sup> first node encountered when moving anti clockwise from node
+<sup>2</sup> fingertables contain entries for keys x + 2<sup>i</sup> where x is the node's own key and i is integers 1,2,3,4...
+<sup>3</sup> In full scale each node would use both IP addresses and port numbers to connect to other nodes. However for demonstrative purposes, this dht runs locally with each node running as a seperate process using different port numbers to simulate the chord. Later versions may incorporate both ip and port.
+<sup>4</sup> First node encountered moving clockwise from node
+<sup>5</sup> Despite being a folder a apart, no node can access another node's files. It is meant to replicate the effect of running a node on individual machines.
