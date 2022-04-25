@@ -5,11 +5,13 @@ This is a distributed network of nodes that allow its users to store and lookup 
 Similar to chord, nodes in this DHT leverage a circular peer to peer distributed network to perform its function. This consists of different nodes arranged in a ring according to their assigned key and keeping track of all keys that fall under their keyspace. This keyspace is the range from the node's own key to it's predecessor's<sup>1</sup> key. For example if the node's key is 14 and it's predecessor's key is 8, then the node is responsible for keys 9 to 14.
 
 ![Figure 1](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/DHT1.png?raw=true)
+
 This image (taken from referenced paper) is a visual example of what a working DHT looks like. Each dot on the circle represents a node with it's assigned key. Files indicated with squares are shown assigned to nodes according to their keys.
 
 This arrangement allows for all nodes to find the correct node for storing or looking up a file. They do so using a fingertable which contains addresses corresponding to nodes responsible for some<sup>2</sup> keys in the DHT. These fingertables allow nodes to find the node responsible for a keyspace directly or forward the request to the most appropriate node that can solve it for us. This enables all lookup and storage operations to be completed in O(log n)
 
 ![Figure 2](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/fingertable.png?raw=true)
+
 This image (taken from referenced paper) is a visual example for how the fingertable stores nodes addresses corresponding to certain keys and use them for lookup.
 
 Furthermore, the DHT also insures that all nodes have a fair and equal load. It does this by hashing the file to find a key that corresponds to a certain node. However, since the DHT is designed for new nodes to continuously join or leave, a traditional hashing scheme to find the node to store the file such as:
@@ -54,7 +56,7 @@ The user can view the names of all files stored on their node using option three
 
 Fingertable details along with information about the node's key, predecessor and successor of successor are available using option four. The fingertable shows the address and key associated with certain keys as shown below.
 
-![Figure 3](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/fingertableExample.png?raw=true)
+![Figure 3](https://github.com/LAA225/Distributed-Hash-Table/blob/master/images/fingertableExample.PNG?raw=true)
 
 Logout allows the node to go offline gracefully by sending all it's files to it's successor which is their rightful inheritor. It also informs its predecessor and successor of it's leaving so that the DHT arrangement can be smoothly updated.
 
